@@ -17,11 +17,10 @@ app.get("/", (req, res) => {
 
 /**
  * POST /proxy
- * Body: { url, method, headers, params, body }
+ * Body: { url, method, headers, params, body, userId }
  */
 app.post("/proxy", async (req, res) => {
-  const { url, method, headers = {}, params = {}, body = null, userId = null } = req.body;
-
+  const { url, method, headers = {}, params = {}, body = null, userId } = req.body;
   if (!url || !method) return res.status(400).json({ error: "Missing url or method" });
 
   try {
@@ -40,10 +39,9 @@ app.post("/proxy", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Save request to Firestore ONLY if user is logged in
-    let requestId = null;
+    let docRef = null;
     if (userId) {
-      const docRef = await db.collection("history").add({
+      docRef = await db.collection("history").add({
         url,
         method,
         headers,
@@ -51,10 +49,9 @@ app.post("/proxy", async (req, res) => {
         body,
         responseStatus: response.status,
         responseData: response.data,
-        userId, // store userId
+        userId,
         createdAt: new Date(),
       });
-      requestId = docRef.id;
     }
 
     res.status(response.status).json({
@@ -62,7 +59,7 @@ app.post("/proxy", async (req, res) => {
       statusText: response.statusText,
       headers: response.headers,
       data: response.data,
-      requestId, // null if guest
+      requestId: docRef?.id || null,
     });
   } catch (error) {
     console.error("Proxy error:", error.message);
@@ -70,11 +67,10 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
-
-// Get last 50 requests
+// GET /history?userId=xxx
 app.get("/history", async (req, res) => {
   const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  if (!userId) return res.json([]); // guest data not in backend
 
   try {
     const snapshot = await db
@@ -92,28 +88,19 @@ app.get("/history", async (req, res) => {
   }
 });
 
-
-/**
- * COLLECTIONS
- */
-
-// Create a new collection
+// Collections
 app.post("/collections", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
 
   try {
-    const docRef = await db.collection("collections").add({
-      name,
-      createdAt: new Date(),
-    });
+    const docRef = await db.collection("collections").add({ name, createdAt: new Date() });
     res.json({ id: docRef.id, name });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Add request to collection
 app.post("/collection-items", async (req, res) => {
   const { collectionId, requestId } = req.body;
   if (!collectionId || !requestId) return res.status(400).json({ error: "Missing fields" });
@@ -130,7 +117,6 @@ app.post("/collection-items", async (req, res) => {
   }
 });
 
-// Get collections with request IDs
 app.get("/collections", async (req, res) => {
   try {
     const snapshot = await db.collection("collections").orderBy("createdAt", "desc").get();
