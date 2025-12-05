@@ -94,8 +94,6 @@ app.get("/history", async (req, res) => {
   }
 });
 
-// Collections
-
 // Create new collection (user-specific)
 app.post("/collections", async (req, res) => {
   const { name, userId } = req.body;
@@ -115,10 +113,13 @@ app.post("/collections", async (req, res) => {
 
 // Add request to collection
 app.post("/collection-items", async (req, res) => {
-  const { collectionId, requestId } = req.body;
-  if (!collectionId || !requestId) return res.status(400).json({ error: "Missing fields" });
+  const { collectionId, requestId, userId } = req.body;
+  if (!collectionId || !requestId || !userId) {
+    return res.status(400).json({ error: "Missing fields or userId" });
+  }
 
   try {
+    // Only allow logged-in users to add items to collections
     const docRef = await db.collection("collection_items").add({
       collectionId,
       requestId,
