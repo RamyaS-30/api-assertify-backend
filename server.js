@@ -2,13 +2,35 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
-import { db } from "./firebaseAdmin.js"; // Firestore only
+import { db, auth } from "./firebaseAdmin.js"; // Firestore + Admin Auth
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Middleware to verify Firebase ID token
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    req.user = null; // guest user
+    return next();
+  }
+
+  const idToken = authHeader.split("Bearer ")[1];
+  try {
+    const decoded = await auth.verifyIdToken(idToken);
+    req.user = { uid: decoded.uid, email: decoded.email };
+    next();
+  } catch (err) {
+    console.error("Invalid token:", err.message);
+    req.user = null; // treat as guest
+    next();
+  }
+};
+
+app.use(verifyToken);
 
 // Health check
 app.get("/", (req, res) => {
@@ -40,24 +62,30 @@ app.post("/proxy", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Save request to Firestore
-    const docRef = await db.collection("history").add({
-      url,
-      method,
-      headers,
-      params,
-      body,
-      responseStatus: response.status,
-      responseData: response.data,
-      createdAt: new Date(),
-    });
+    let requestId = null;
+
+    // Save request only for logged-in users
+    if (req.user) {
+      const docRef = await db.collection("history").add({
+        uid: req.user.uid,
+        url,
+        method,
+        headers,
+        params,
+        body,
+        responseStatus: response.status,
+        responseData: response.data,
+        createdAt: new Date(),
+      });
+      requestId = docRef.id;
+    }
 
     res.status(response.status).json({
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
       data: response.data,
-      requestId: docRef.id, // return the saved request ID
+      requestId, // null for guest
     });
   } catch (error) {
     console.error("Proxy error:", error.message);
@@ -65,11 +93,14 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
-// Get last 50 requests
+// Get last 50 requests (logged-in users only)
 app.get("/history", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
   try {
     const snapshot = await db
       .collection("history")
+      .where("uid", "==", req.user.uid)
       .orderBy("createdAt", "desc")
       .limit(50)
       .get();
@@ -91,8 +122,11 @@ app.post("/collections", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
 
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
   try {
     const docRef = await db.collection("collections").add({
+      uid: req.user.uid,
       name,
       createdAt: new Date(),
     });
@@ -107,8 +141,11 @@ app.post("/collection-items", async (req, res) => {
   const { collectionId, requestId } = req.body;
   if (!collectionId || !requestId) return res.status(400).json({ error: "Missing fields" });
 
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
   try {
     const docRef = await db.collection("collection_items").add({
+      uid: req.user.uid,
       collectionId,
       requestId,
       createdAt: new Date(),
@@ -121,8 +158,15 @@ app.post("/collection-items", async (req, res) => {
 
 // Get collections with request IDs
 app.get("/collections", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
   try {
-    const snapshot = await db.collection("collections").orderBy("createdAt", "desc").get();
+    const snapshot = await db
+      .collection("collections")
+      .where("uid", "==", req.user.uid)
+      .orderBy("createdAt", "desc")
+      .get();
+
     const collections = [];
 
     for (const doc of snapshot.docs) {
@@ -130,6 +174,7 @@ app.get("/collections", async (req, res) => {
       const itemsSnap = await db
         .collection("collection_items")
         .where("collectionId", "==", doc.id)
+        .where("uid", "==", req.user.uid)
         .get();
       const items = itemsSnap.docs.map((d) => d.data().requestId);
       collections.push({ id: doc.id, name: data.name, items });
