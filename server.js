@@ -17,16 +17,16 @@ app.get("/", (req, res) => {
 
 /**
  * POST /proxy
- * Body: { url, method, headers, params, body, userId }
+ * Body: { url, method, headers, params, body }
  */
 app.post("/proxy", async (req, res) => {
-  const { url, method, headers = {}, params = {}, body, userId } = req.body;
+  const { url, method, headers = {}, params = {}, body = null } = req.body;
 
   if (!url || !method) return res.status(400).json({ error: "Missing url or method" });
 
   try {
     let finalUrl = url;
-    if (method.toUpperCase() === "GET" && Object.keys(params).length > 0) {
+    if (method.toUpperCase() === "GET" && params && Object.keys(params).length > 0) {
       const urlObj = new URL(url);
       Object.entries(params).forEach(([key, value]) => urlObj.searchParams.append(key, value));
       finalUrl = urlObj.toString();
@@ -40,29 +40,24 @@ app.post("/proxy", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Only save to Firebase if userId exists (logged-in user)
-    let requestId = null;
-    if (userId) {
-      const docRef = await db.collection("history").add({
-        url,
-        method,
-        headers,
-        params,
-        body,
-        responseStatus: response.status,
-        responseData: response.data,
-        userId,
-        createdAt: new Date(),
-      });
-      requestId = docRef.id;
-    }
+    // Save request to Firestore
+    const docRef = await db.collection("history").add({
+      url,
+      method,
+      headers,
+      params,
+      body,
+      responseStatus: response.status,
+      responseData: response.data,
+      createdAt: new Date(),
+    });
 
     res.status(response.status).json({
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
       data: response.data,
-      requestId,
+      requestId: docRef.id, // return the saved request ID
     });
   } catch (error) {
     console.error("Proxy error:", error.message);
@@ -70,39 +65,35 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
-// Get last 50 requests for a user
+// Get last 50 requests
 app.get("/history", async (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: "userId is required" });
-
   try {
-    const snapshot = await db.collection("history")
-      .where("userId", "==", userId)
+    const snapshot = await db
+      .collection("history")
       .orderBy("createdAt", "desc")
       .limit(50)
       .get();
 
-    const history = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
+    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     res.json(history);
   } catch (err) {
-    console.error("Firestore fetch error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Create new collection (user-specific)
+/**
+ * COLLECTIONS
+ */
+
+// Create a new collection
 app.post("/collections", async (req, res) => {
-  const { name, userId } = req.body;
-  if (!name || !userId) return res.status(400).json({ error: "Name and userId are required" });
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: "Name is required" });
 
   try {
     const docRef = await db.collection("collections").add({
       name,
-      userId,
       createdAt: new Date(),
     });
     res.json({ id: docRef.id, name });
@@ -113,13 +104,10 @@ app.post("/collections", async (req, res) => {
 
 // Add request to collection
 app.post("/collection-items", async (req, res) => {
-  const { collectionId, requestId, userId } = req.body;
-  if (!collectionId || !requestId || !userId) {
-    return res.status(400).json({ error: "Missing fields or userId" });
-  }
+  const { collectionId, requestId } = req.body;
+  if (!collectionId || !requestId) return res.status(400).json({ error: "Missing fields" });
 
   try {
-    // Only allow logged-in users to add items to collections
     const docRef = await db.collection("collection_items").add({
       collectionId,
       requestId,
@@ -131,19 +119,12 @@ app.post("/collection-items", async (req, res) => {
   }
 });
 
-// Get collections for a user
+// Get collections with request IDs
 app.get("/collections", async (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: "userId is required" });
-
   try {
-    const snapshot = await db
-      .collection("collections")
-      .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
-      .get();
-
+    const snapshot = await db.collection("collections").orderBy("createdAt", "desc").get();
     const collections = [];
+
     for (const doc of snapshot.docs) {
       const data = doc.data();
       const itemsSnap = await db
