@@ -20,7 +20,7 @@ app.get("/", (req, res) => {
  * Body: { url, method, headers, params, body }
  */
 app.post("/proxy", async (req, res) => {
-  const { url, method, headers = {}, params = {}, body = null } = req.body;
+  const { url, method, headers = {}, params = {}, body = null, userId = null } = req.body;
 
   if (!url || !method) return res.status(400).json({ error: "Missing url or method" });
 
@@ -40,24 +40,29 @@ app.post("/proxy", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Save request to Firestore
-    const docRef = await db.collection("history").add({
-      url,
-      method,
-      headers,
-      params,
-      body,
-      responseStatus: response.status,
-      responseData: response.data,
-      createdAt: new Date(),
-    });
+    // Save request to Firestore ONLY if user is logged in
+    let requestId = null;
+    if (userId) {
+      const docRef = await db.collection("history").add({
+        url,
+        method,
+        headers,
+        params,
+        body,
+        responseStatus: response.status,
+        responseData: response.data,
+        userId, // store userId
+        createdAt: new Date(),
+      });
+      requestId = docRef.id;
+    }
 
     res.status(response.status).json({
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
       data: response.data,
-      requestId: docRef.id, // return the saved request ID
+      requestId, // null if guest
     });
   } catch (error) {
     console.error("Proxy error:", error.message);
@@ -65,11 +70,16 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
+
 // Get last 50 requests
 app.get("/history", async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+
   try {
     const snapshot = await db
       .collection("history")
+      .where("userId", "==", userId)
       .orderBy("createdAt", "desc")
       .limit(50)
       .get();
@@ -81,6 +91,7 @@ app.get("/history", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 /**
  * COLLECTIONS
