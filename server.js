@@ -72,20 +72,19 @@ app.get("/history", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
   try {
-    const snapshot = await db
-      .collection("history")
+    const snapshot = await db.collection("history")
       .where("userId", "==", userId)
       .orderBy("createdAt", "desc")
-      .limit(50)
       .get();
 
-    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const history = snapshot.docs.map(doc => doc.data());
     res.json(history);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("Firestore fetch error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 // Collections
 
