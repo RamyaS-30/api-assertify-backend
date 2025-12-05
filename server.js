@@ -25,7 +25,7 @@ const verifyToken = async (req, res, next) => {
     next();
   } catch (err) {
     console.warn("Invalid token, treating as guest:", err.message);
-    req.user = null; // force as guest
+    req.user = null; // guest fallback
     next();
   }
 };
@@ -78,9 +78,6 @@ app.post("/proxy", async (req, res) => {
         createdAt: new Date(),
       });
       requestId = docRef.id;
-    } else {
-      // Guest: ensure requestId stays null
-      requestId = null;
     }
 
     res.status(response.status).json({
@@ -101,7 +98,7 @@ app.post("/proxy", async (req, res) => {
  * Only for logged-in users
  */
 app.get("/history", async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  if (!req.user) return res.status(401).json({ error: "Unauthorized. Guest users should use local history." });
 
   try {
     const snapshot = await db
@@ -131,7 +128,6 @@ app.get("/history", async (req, res) => {
 app.post("/collections", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
-
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
   try {
@@ -150,7 +146,6 @@ app.post("/collections", async (req, res) => {
 app.post("/collection-items", async (req, res) => {
   const { collectionId, requestId } = req.body;
   if (!collectionId || !requestId) return res.status(400).json({ error: "Missing fields" });
-
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
   try {
