@@ -24,8 +24,8 @@ const verifyToken = async (req, res, next) => {
     req.user = { uid: decoded.uid, email: decoded.email };
     next();
   } catch (err) {
-    console.error("Invalid token:", err.message);
-    req.user = null; // treat as guest
+    console.warn("Invalid token, treating as guest:", err.message);
+    req.user = null; // force as guest
     next();
   }
 };
@@ -64,7 +64,7 @@ app.post("/proxy", async (req, res) => {
 
     let requestId = null;
 
-    // Save request only for logged-in users
+    // Save request only if logged-in user
     if (req.user) {
       const docRef = await db.collection("history").add({
         uid: req.user.uid,
@@ -78,6 +78,9 @@ app.post("/proxy", async (req, res) => {
         createdAt: new Date(),
       });
       requestId = docRef.id;
+    } else {
+      // Guest: ensure requestId stays null
+      requestId = null;
     }
 
     res.status(response.status).json({
@@ -185,7 +188,6 @@ app.get("/collections", async (req, res) => {
         .get();
       const items = itemsSnap.docs.map((d) => d.data().requestId);
 
-      // Use `requests` to match frontend
       collections.push({ id: doc.id, name: data.name, requests: items });
     }
 
