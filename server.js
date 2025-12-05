@@ -40,25 +40,29 @@ app.post("/proxy", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Save request to Firestore
-    const docRef = await db.collection("history").add({
-      url,
-      method,
-      headers,
-      params,
-      body,
-      responseStatus: response.status,
-      responseData: response.data,
-      userId: userId || null, // null for guests
-      createdAt: new Date(),
-    });
+    // Only save to Firebase if userId exists (logged-in user)
+    let requestId = null;
+    if (userId) {
+      const docRef = await db.collection("history").add({
+        url,
+        method,
+        headers,
+        params,
+        body,
+        responseStatus: response.status,
+        responseData: response.data,
+        userId,
+        createdAt: new Date(),
+      });
+      requestId = docRef.id;
+    }
 
     res.status(response.status).json({
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
       data: response.data,
-      requestId: docRef.id,
+      requestId,
     });
   } catch (error) {
     console.error("Proxy error:", error.message);
@@ -66,7 +70,7 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
-// Get last 50 requests for a user or guest
+// Get last 50 requests for a user
 app.get("/history", async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: "userId is required" });
@@ -75,16 +79,20 @@ app.get("/history", async (req, res) => {
     const snapshot = await db.collection("history")
       .where("userId", "==", userId)
       .orderBy("createdAt", "desc")
+      .limit(50)
       .get();
 
-    const history = snapshot.docs.map(doc => doc.data());
+    const history = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
     res.json(history);
   } catch (err) {
     console.error("Firestore fetch error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 
 // Collections
 
