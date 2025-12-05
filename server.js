@@ -69,21 +69,21 @@ app.post("/proxy", async (req, res) => {
 
 // GET /history?userId=xxx
 app.get("/history", async (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.json([]); // guest data not in backend
-
   try {
+    const { userId } = req.query; // get userId
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
     const snapshot = await db
       .collection("history")
-      .where("userId", "==", userId)
+      .where("userId", "==", userId) // filter by user
       .orderBy("createdAt", "desc")
       .limit(50)
       .get();
 
-    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const history = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(history);
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching history:", err);
     res.status(500).json({ error: err.message });
   }
 });
