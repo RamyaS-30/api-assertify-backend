@@ -93,7 +93,10 @@ app.post("/proxy", async (req, res) => {
   }
 });
 
-// Get last 50 requests (logged-in users only)
+/**
+ * GET /history
+ * Only for logged-in users
+ */
 app.get("/history", async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
@@ -105,7 +108,11 @@ app.get("/history", async (req, res) => {
       .limit(50)
       .get();
 
-    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const history = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
     res.json(history);
   } catch (err) {
     console.error(err);
@@ -130,7 +137,7 @@ app.post("/collections", async (req, res) => {
       name,
       createdAt: new Date(),
     });
-    res.json({ id: docRef.id, name });
+    res.json({ id: docRef.id, name, requests: [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -177,7 +184,9 @@ app.get("/collections", async (req, res) => {
         .where("uid", "==", req.user.uid)
         .get();
       const items = itemsSnap.docs.map((d) => d.data().requestId);
-      collections.push({ id: doc.id, name: data.name, items });
+
+      // Use `requests` to match frontend
+      collections.push({ id: doc.id, name: data.name, requests: items });
     }
 
     res.json(collections);
