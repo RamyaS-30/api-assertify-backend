@@ -1,13 +1,24 @@
 import admin from "firebase-admin";
+import dotenv from "dotenv";
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+dotenv.config(); // Load .env variables
 
-// Fix: restore newlines properly
-serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+let credential;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  // Parse the JSON string from environment variable
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  credential = admin.credential.cert(serviceAccount);
+} else {
+  console.warn(
+    "FIREBASE_SERVICE_ACCOUNT not found in .env, using application default credentials"
+  );
+  credential = admin.credential.applicationDefault();
+}
 
-export const db = admin.firestore();
+if (!admin.apps.length) {
+  admin.initializeApp({ credential });
+}
+
 export const auth = admin.auth();
+export const db = admin.firestore();
